@@ -1,5 +1,6 @@
 const pup = require("puppeteer");
 require('dotenv').config();
+const { sendClockInFailureEmail } = require("./mailer");
 
 const USER_EMAIL = process.env.USER_EMAIL;
 const USER_PASSWORD = process.env.USER_PASSWORD;
@@ -25,27 +26,27 @@ async function main() {
         return;
     }
     console.log("Launching browser...");
-    // let browser = await pup.launch({
-    //     headless: true,
-    //     defaultViewport: null,
-    //     args: ["--start-maximized"]
-    // });
+    let browser = await pup.launch({
+        headless: true,
+        defaultViewport: null,
+        args: ["--start-maximized"]
+    });
 
     /**
      * ONLY FOR SERVER
      * server doesn't have GUI, so below settings required
      */
-    let browser = await pup.launch({
-        executablePath: "/usr/bin/google-chrome",
-        headless: "new",
-        defaultViewport: null,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu"
-        ]
-    });
+    // let browser = await pup.launch({
+    //     executablePath: "/usr/bin/google-chrome",
+    //     headless: "new",
+    //     defaultViewport: null,
+    //     args: [
+    //         "--no-sandbox",
+    //         "--disable-setuid-sandbox",
+    //         "--disable-gpu",
+    //         "--disable-dev-shm-usage"
+    //     ]
+    // });
 
 
     let pages = await browser.pages();
@@ -79,27 +80,45 @@ async function main() {
 
         // Clock in - Clock out
         console.log("Clicking clock-in/clock-out button...");
+
+        // Wait for the clock-in widget to appear
+        await tab.waitForSelector('ui-clock-in-details', { visible: true, timeout: 15000 });
+
         const clicked = await tab.evaluate(() => {
-            const spanParent = document.querySelector('.show_clock_popover');
-            if (spanParent) {
-                const link = spanParent.querySelector('a');
-                if (link) {
-                    link.click();
-                    return true;
+            // The clock-in button is inside a dbx-ds-button-wrapper with class 'clock-in-btn'
+            const btnWrapper = document.querySelector('dbx-ds-button-wrapper.clock-in-btn');
+            if (btnWrapper) {
+                // Try the inner dbx-ds-button web component's shadow root first
+                const dbxBtn = btnWrapper.querySelector('dbx-ds-button');
+                if (dbxBtn) {
+                    // Shadow DOM button
+                    const shadowBtn = dbxBtn.shadowRoot && dbxBtn.shadowRoot.querySelector('button');
+                    if (shadowBtn) {
+                        shadowBtn.click();
+                        return 'shadow-button';
+                    }
+                    // Fallback: click the host element itself
+                    dbxBtn.click();
+                    return 'dbx-button-host';
                 }
+                // Fallback: click the wrapper
+                btnWrapper.click();
+                return 'wrapper';
             }
             return false;
         });
 
         if (clicked) {
-            console.log("✅ Clock-in / ✅ clock-out successful!");
+            console.log(`✅ Clock-in / Clock-out successful! (via ${clicked})`);
             await wait(2000);
         } else {
-            console.log("❌ Clock-in failed!");
+            console.log("❌ Clock-in failed! Button not found.");
+            await sendClockInFailureEmail("Clock-in button not found in the UI.");
         }
 
     } catch (error) {
         console.error("Error:", error.message);
+        await sendClockInFailureEmail(error.message);
     }
     await wait(5000);
     await browser.close();
