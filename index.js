@@ -30,27 +30,27 @@ async function main() {
         return;
     }
     console.log("Launching browser...");
-    let browser = await pup.launch({
-        headless: false,
-        defaultViewport: null,
-        args: ["--start-maximized"]
-    });
+    // let browser = await pup.launch({
+    //     headless: false,
+    //     defaultViewport: null,
+    //     args: ["--start-maximized"]
+    // });
 
     /**
      * ONLY FOR SERVER
      * server doesn't have GUI, so below settings required
      */
-    // let browser = await pup.launch({
-    //     executablePath: "/usr/bin/google-chrome",
-    //     headless: "new",
-    //     defaultViewport: null,
-    //     args: [
-    //         "--no-sandbox",
-    //         "--disable-setuid-sandbox",
-    //         "--disable-gpu",
-    //         "--disable-dev-shm-usage"
-    //     ]
-    // });
+    let browser = await pup.launch({
+        executablePath: "/usr/bin/google-chrome",
+        headless: "new",
+        defaultViewport: null,
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage"
+        ]
+    });
 
 
     let pages = await browser.pages();
