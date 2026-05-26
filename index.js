@@ -1,6 +1,10 @@
 const pup = require("puppeteer");
+const fs = require("fs");
+const path = require("path");
 require('dotenv').config();
 const { sendClockInFailureEmail } = require("./mailer");
+
+const COOKIES_PATH = path.join(__dirname, "cookies.json");
 
 const USER_EMAIL = process.env.USER_EMAIL;
 const USER_PASSWORD = process.env.USER_PASSWORD;
@@ -26,27 +30,27 @@ async function main() {
         return;
     }
     console.log("Launching browser...");
-    // let browser = await pup.launch({
-    //     headless: true,
-    //     defaultViewport: null,
-    //     args: ["--start-maximized"]
-    // });
+    let browser = await pup.launch({
+        headless: false,
+        defaultViewport: null,
+        args: ["--start-maximized"]
+    });
 
     /**
      * ONLY FOR SERVER
      * server doesn't have GUI, so below settings required
      */
-    let browser = await pup.launch({
-        executablePath: "/usr/bin/google-chrome",
-        headless: "new",
-        defaultViewport: null,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage"
-        ]
-    });
+    // let browser = await pup.launch({
+    //     executablePath: "/usr/bin/google-chrome",
+    //     headless: "new",
+    //     defaultViewport: null,
+    //     args: [
+    //         "--no-sandbox",
+    //         "--disable-setuid-sandbox",
+    //         "--disable-gpu",
+    //         "--disable-dev-shm-usage"
+    //     ]
+    // });
 
 
     let pages = await browser.pages();
@@ -58,6 +62,13 @@ async function main() {
     });
 
     try {
+        // Load saved cookies if available (keeps the server recognised as a known device)
+        if (fs.existsSync(COOKIES_PATH)) {
+            const cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, "utf8"));
+            await tab.setCookie(...cookies);
+            console.log("Loaded saved cookies.");
+        }
+
         // Login
         await tab.type('#UserLogin_username', USER_EMAIL, { delay: 50 });
         await tab.type('#UserLogin_password', USER_PASSWORD, { delay: 50 });
@@ -65,7 +76,25 @@ async function main() {
         console.log("Logging in...");
 
         await tab.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 });
+
+        // Handle OTP screen if Darwinbox asks for device verification
+        const isOtpPage = await tab.evaluate(() => {
+            return !!document.querySelector('input[name="otp"], input[id*="otp"], input[placeholder*="OTP"], input[placeholder*="otp"]');
+        });
+
+        if (isOtpPage) {
+            console.log("OTP screen detected. Sending failure email and waiting...");
+            await sendClockInFailureEmail("Darwinbox is asking for OTP (unknown device verification). Please log in manually once to register this device, then delete cookies.json and re-run.");
+            await browser.close();
+            return;
+        }
+
         console.log('successfully logged in !! ');
+
+        // Save cookies after successful login so next run skips device verification
+        const cookies = await tab.cookies();
+        fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2));
+        console.log("Cookies saved for next run.");
 
         // Skip mood modal if it appears
         try {
